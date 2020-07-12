@@ -12,13 +12,13 @@ import (
 
 var NodeUUID = uuid.New().String()
 
-const CLIENT_GET_SUBJECT = "mizan.client.get"
-const CLIENT_SET_SUBJECT = "mizan.client.set"
+const CLIENT_REQUEST_SUBJECT = "mizan.client.request"
 
-const CLUSTER_GET_SUBJECT = "mizan.cluster.get"
-const CLUSTER_SET_SUBJECT = "mizan.cluster.set"
+const CLUSTER_REQUEST_SUBJECT = "mizan.cluster.request"
 const CLUSTER_SYNC_SUBJECT = "mizan.cluster.sync"
 const CLUSTER_SYNC_REQUEST_SUBJECT = "mizan.cluster.sync.request"
+
+
 
 var clusterSet *nats.Subscription
 var clusterGet *nats.Subscription
@@ -43,17 +43,14 @@ func main() {
 	log.Printf("Sync finished in %v \n", time.Since(st))
 
 	log.Print("Start cluster handlers")
-	clusterSet, err = handleClusterSet(nc, mizanDB)
+	clusterSet, err = handleClusterRequest(nc, mizanDB)
 	checkError(err, "Register cluster set")
-	clusterGet, err = handleClusterGet(nc, mizanDB)
-	checkError(err, "Register cluster get")
+
 	handleStartupSyncRequest(nc, mizanDB)
 
 	log.Print("Start client handlers")
-	clientSet, err = handleClientSet(nc)
+	clientSet, err = handleClientRequest(nc)
 	checkError(err, "Register client set")
-	clientGet, err = handleClientGet(nc)
-	checkError(err, "Register client get")
 
 	log.Print("Start completed.")
 	c := make(chan os.Signal, 1)

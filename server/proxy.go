@@ -9,20 +9,14 @@ import (
 	"time"
 )
 
-func handleClientSet(nc *nats.Conn) (*nats.Subscription, error) {
-	return nc.QueueSubscribe(CLIENT_SET_SUBJECT, "proxy", func(m *nats.Msg) {
-		go handleClusterGetSet_majority(CLUSTER_SET_SUBJECT, m, nc, false)
+func handleClientRequest(nc *nats.Conn) (*nats.Subscription, error) {
+	return nc.QueueSubscribe(CLIENT_REQUEST_SUBJECT, "proxy", func(m *nats.Msg) {
+		go handleClusterRequest_majority(m, nc)
 	})
 }
 
-func handleClientGet(nc *nats.Conn) (*nats.Subscription, error){
-	return nc.QueueSubscribe(CLIENT_GET_SUBJECT, "proxy", func(m *nats.Msg) {
-		go handleClusterGetSet_majority(CLUSTER_GET_SUBJECT, m, nc, true)
-	})
-}
-
-func handleClusterGetSet_majority(subject string, m *nats.Msg, nc *nats.Conn, sync bool) {
-	respList := requestCluster(subject, m, nc)
+func handleClusterRequest_majority(m *nats.Msg, nc *nats.Conn) {
+	respList := requestCluster(m, nc)
 	res, err := findMajority(respList)
 	if err != nil {
 		log.Print("Error in find majority: %v. \n", err)
@@ -30,7 +24,7 @@ func handleClusterGetSet_majority(subject string, m *nats.Msg, nc *nats.Conn, sy
 	}
 	output, err := json.Marshal(res)
 	checkError(err, "Marshal cluster majority response")
-	if sync && res.Confidence < 1 {
+	if res.Confidence < 1 {
 		err = nc.Publish(CLUSTER_SYNC_SUBJECT, output)
 		checkError(err, "Publish cluster sync")
 	}
@@ -39,7 +33,7 @@ func handleClusterGetSet_majority(subject string, m *nats.Msg, nc *nats.Conn, sy
 	checkError(err, "Publish cluster majority response")
 }
 
-func requestCluster(subject string, m *nats.Msg, nc *nats.Conn) []DataEntry {
+func requestCluster(m *nats.Msg, nc *nats.Conn) []DataEntry {
 	resSubject := "mizan.cluster.req.res." + uuid.New().String()
 	resChan := make(chan DataEntry, 1000)
 	subscription, err := nc.Subscribe(resSubject, func(msg *nats.Msg) {
@@ -51,7 +45,7 @@ func requestCluster(subject string, m *nats.Msg, nc *nats.Conn) []DataEntry {
 	checkError(err, "Register subscriber for cluster req.res response")
 	defer subscription.Unsubscribe()
 
-	err = nc.PublishRequest(subject, resSubject, m.Data)
+	err = nc.PublishRequest(CLUSTER_REQUEST_SUBJECT, resSubject, m.Data)
 	checkError(err, "Publish cluster req.res request")
 
 	respList := []DataEntry{}

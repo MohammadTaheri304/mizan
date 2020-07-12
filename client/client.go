@@ -13,8 +13,7 @@ import (
 	"time"
 )
 
-const CLIENT_GET_SUBJECT = "mizan.client.get"
-const CLIENT_SET_SUBJECT = "mizan.client.set"
+const CLIENT_REQUEST_SUBJECT = "mizan.client.request"
 
 func main() {
 	//main_cli()
@@ -33,16 +32,15 @@ func main_test_normal() {
 	for {
 		wg := sync.WaitGroup{}
 		for i := 0; i < 100; i++ {
-			log.Println(i)
 			wg.Add(1)
 			go func(wg *sync.WaitGroup) {
 				defer wg.Done()
 
 				res, err := setToServer(nc, strconv.Itoa(int(uuid.New().ID()%10000)), uuid.New().String())
 				if err != nil {
-					log.Println("Error set %v", err)
+					log.Println("Error set ", err)
 				} else if res.Confidence < 1 {
-					log.Println("loosly set answer %v", res)
+					log.Println("loosly set answer ", res)
 				}
 
 			}(&wg)
@@ -53,9 +51,9 @@ func main_test_normal() {
 
 				res, err := getFormServer(nc, strconv.Itoa(int(uuid.New().ID()%10000)))
 				if err != nil {
-					log.Println("Error get %v", err)
+					log.Println("Error get ", err)
 				} else if res.Confidence < 1 {
-					log.Println("loosly get answer %v", res)
+					log.Println("loosly get answer ", res)
 				}
 
 			}(&wg)
@@ -64,7 +62,6 @@ func main_test_normal() {
 		log.Println(time.Now().Unix())
 	}
 }
-
 
 func main_test_get() {
 
@@ -113,9 +110,9 @@ func main_test_set() {
 
 				res, err := setToServer(nc, strconv.Itoa(int(uuid.New().ID()%1000000)), uuid.New().String())
 				if err != nil {
-					log.Println("Error set %v", err)
+					log.Println("Error set ", err)
 				} else if res.Confidence < 1 {
-					log.Println("loosly set answer %v", res)
+					log.Println("loosly set answer ", res)
 				}
 				//log.Print(res)
 			}(&wg)
@@ -136,7 +133,8 @@ func main_cli() {
 	for true {
 		text, _ := reader.ReadString('\n')
 		args := strings.Fields(text)
-;		if args[0] == "set" {
+
+		if args[0] == "set" {
 			res, err := setToServer(nc, args[1], args[2])
 			if err != nil {
 				log.Fatal("Error %v", err)
@@ -153,12 +151,12 @@ func main_cli() {
 }
 
 func getFormServer(nc *nats.Conn, key string) (*DataEntry, error) {
-	request, err := json.Marshal(DataEntry{Key: key})
+	request, err := json.Marshal(DataEntry{OpCode: "GET", Key: key})
 	if err != nil {
 		return nil, err
 	}
 
-	m, err := nc.Request(CLIENT_GET_SUBJECT, request, 2*time.Second)
+	m, err := nc.Request(CLIENT_REQUEST_SUBJECT, request, 2*time.Second)
 	if err != nil {
 		return nil, err
 	}
@@ -173,12 +171,12 @@ func getFormServer(nc *nats.Conn, key string) (*DataEntry, error) {
 }
 
 func setToServer(nc *nats.Conn, key, value string) (*DataEntry, error) {
-	request, err := json.Marshal(DataEntry{Key: key, Value: value})
+	request, err := json.Marshal(DataEntry{OpCode: "SET", Key: key, Value: value})
 	if err != nil {
 		return nil, err
 	}
 
-	m, err := nc.Request(CLIENT_SET_SUBJECT, request, 2*time.Second)
+	m, err := nc.Request(CLIENT_REQUEST_SUBJECT, request, 2*time.Second)
 	if err != nil {
 		return nil, err
 	}
@@ -193,6 +191,7 @@ func setToServer(nc *nats.Conn, key, value string) (*DataEntry, error) {
 }
 
 type DataEntry struct {
+	OpCode     string  `json:"opcode"`
 	Key        string  `json:"key"`
 	Value      string  `json:"value"`
 	State      string  `json:"state"`
