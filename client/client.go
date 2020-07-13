@@ -3,6 +3,7 @@ package main
 import (
 	"bufio"
 	"encoding/json"
+	"github.com/MohammadTaheri304/mizan/shared"
 	"github.com/google/uuid"
 	"github.com/nats-io/nats.go"
 	"log"
@@ -13,25 +14,25 @@ import (
 	"time"
 )
 
-const CLIENT_REQUEST_SUBJECT = "mizan.client.request"
 
 func main() {
-	//main_cli()
+	main_cli()
 	//main_test_set()
 	//main_test_get()
-	main_test_normal()
+	//main_test_normal()
 }
 
 func main_test_normal() {
 
 	// Connect to a server
 	nc, err := nats.Connect(nats.DefaultURL)
-	checkError(err)
+	shared.CheckError(err, "")
 	log.Print("Connected to NATS")
 
 	for {
 		wg := sync.WaitGroup{}
 		for i := 0; i < 100; i++ {
+			// set a random key
 			wg.Add(1)
 			go func(wg *sync.WaitGroup) {
 				defer wg.Done()
@@ -45,6 +46,21 @@ func main_test_normal() {
 
 			}(&wg)
 
+			// unset a random key
+			wg.Add(1)
+			go func(wg *sync.WaitGroup) {
+				defer wg.Done()
+
+				res, err := unsetServer(nc, strconv.Itoa(int(uuid.New().ID()%10000)))
+				if err != nil {
+					log.Println("Error unset ", err)
+				} else if res.Confidence < 1 {
+					log.Println("loosly unset answer ", res)
+				}
+
+			}(&wg)
+
+			// get a random key
 			wg.Add(1)
 			go func(wg *sync.WaitGroup) {
 				defer wg.Done()
@@ -52,6 +68,7 @@ func main_test_normal() {
 				res, err := getFormServer(nc, strconv.Itoa(int(uuid.New().ID()%10000)))
 				if err != nil {
 					log.Println("Error get ", err)
+					return
 				} else if res.Confidence < 1 {
 					log.Println("loosly get answer ", res)
 				}
@@ -67,7 +84,7 @@ func main_test_get() {
 
 	// Connect to a server
 	nc, err := nats.Connect(nats.DefaultURL)
-	checkError(err)
+	shared.CheckError(err, "")
 	log.Print("Connected to NATS")
 
 	for {
@@ -96,7 +113,7 @@ func main_test_set() {
 
 	// Connect to a server
 	nc, err := nats.Connect(nats.DefaultURL)
-	checkError(err)
+	shared.CheckError(err, "")
 	log.Print("Connected to NATS")
 
 	for {
@@ -126,7 +143,7 @@ func main_cli() {
 
 	// Connect to a server
 	nc, err := nats.Connect(nats.DefaultURL)
-	checkError(err)
+	shared.CheckError(err, "")
 	log.Print("Connected to NATS")
 
 	reader := bufio.NewReader(os.Stdin)
@@ -136,6 +153,12 @@ func main_cli() {
 
 		if args[0] == "set" {
 			res, err := setToServer(nc, args[1], args[2])
+			if err != nil {
+				log.Fatal("Error %v", err)
+			}
+			log.Print(res)
+		} else if args[0] == "unset" {
+			res, err := unsetServer(nc, args[1])
 			if err != nil {
 				log.Fatal("Error %v", err)
 			}
@@ -150,18 +173,18 @@ func main_cli() {
 	}
 }
 
-func getFormServer(nc *nats.Conn, key string) (*DataEntry, error) {
-	request, err := json.Marshal(DataEntry{OpCode: "GET", Key: key})
+func getFormServer(nc *nats.Conn, key string) (*shared.DataEntry, error) {
+	request, err := json.Marshal(shared.DataEntry{OpCode: "GET", Key: key})
 	if err != nil {
 		return nil, err
 	}
 
-	m, err := nc.Request(CLIENT_REQUEST_SUBJECT, request, 2*time.Second)
+	m, err := nc.Request(shared.CLIENT_REQUEST_SUBJECT, request, 5*time.Second)
 	if err != nil {
 		return nil, err
 	}
 
-	var s DataEntry
+	var s shared.DataEntry
 	err = json.Unmarshal(m.Data, &s)
 	if err != nil {
 		return nil, err
@@ -170,18 +193,18 @@ func getFormServer(nc *nats.Conn, key string) (*DataEntry, error) {
 	return &s, nil
 }
 
-func setToServer(nc *nats.Conn, key, value string) (*DataEntry, error) {
-	request, err := json.Marshal(DataEntry{OpCode: "SET", Key: key, Value: value})
+func setToServer(nc *nats.Conn, key, value string) (*shared.DataEntry, error) {
+	request, err := json.Marshal(shared.DataEntry{OpCode: "SET", Key: key, Value: value})
 	if err != nil {
 		return nil, err
 	}
 
-	m, err := nc.Request(CLIENT_REQUEST_SUBJECT, request, 2*time.Second)
+	m, err := nc.Request(shared.CLIENT_REQUEST_SUBJECT, request, 5*time.Second)
 	if err != nil {
 		return nil, err
 	}
 
-	var s DataEntry
+	var s shared.DataEntry
 	err = json.Unmarshal(m.Data, &s)
 	if err != nil {
 		return nil, err
@@ -190,16 +213,22 @@ func setToServer(nc *nats.Conn, key, value string) (*DataEntry, error) {
 	return &s, nil
 }
 
-type DataEntry struct {
-	OpCode     string  `json:"opcode"`
-	Key        string  `json:"key"`
-	Value      string  `json:"value"`
-	State      string  `json:"state"`
-	Confidence float32 `json:"confidence"`
-}
-
-func checkError(err error) {
+func unsetServer(nc *nats.Conn, key string) (*shared.DataEntry, error) {
+	request, err := json.Marshal(shared.DataEntry{OpCode: "UNSET", Key: key})
 	if err != nil {
-		log.Fatal("Error %v", err)
+		return nil, err
 	}
+
+	m, err := nc.Request(shared.CLIENT_REQUEST_SUBJECT, request, 5*time.Second)
+	if err != nil {
+		return nil, err
+	}
+
+	var s shared.DataEntry
+	err = json.Unmarshal(m.Data, &s)
+	if err != nil {
+		return nil, err
+	}
+
+	return &s, nil
 }

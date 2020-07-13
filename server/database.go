@@ -30,14 +30,24 @@ func (jm *MDB) set(key, value string) (Record, error) {
 		record.value = value
 		record.state = getMD5Hash(value)
 		jm.mem.Store(key, record)
-		//log.Printf("Update key %v state to %v \n", key, record.state)
 		return record, nil
 	} else {
 		return Record{}, errors.New("unable.to.lock.key")
 	}
 }
 
-func (jm *MDB) sync(key, value, state string) (Record,error) {
+func (jm *MDB) unset(key string) (Record, error) {
+	lr := jm.locker.Lock(key)
+	if lr {
+		defer jm.locker.Unlock(key)
+		jm.mem.Delete(key)
+		return Record{key: key, value: "", state: ""}, nil
+	} else {
+		return Record{}, errors.New("unable.to.lock.key")
+	}
+}
+
+func (jm *MDB) sync(key, value, state string) (Record, error) {
 	lr := jm.locker.Lock(key)
 	if lr {
 		defer jm.locker.Unlock(key)
@@ -55,7 +65,7 @@ func (jm *MDB) get(key string) (Record, bool) {
 	if ok {
 		return res.(Record), ok
 	}
-	return Record{key: key, state: ""}, ok
+	return Record{key: key, value: "", state: ""}, ok
 }
 
 func getMD5Hash(text string) string {

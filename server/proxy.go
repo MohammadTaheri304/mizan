@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"errors"
+	"github.com/MohammadTaheri304/mizan/shared"
 	"github.com/google/uuid"
 	"github.com/nats-io/nats.go"
 	"log"
@@ -10,7 +11,7 @@ import (
 )
 
 func handleClientRequest(nc *nats.Conn) (*nats.Subscription, error) {
-	return nc.QueueSubscribe(CLIENT_REQUEST_SUBJECT, "proxy", func(m *nats.Msg) {
+	return nc.QueueSubscribe(shared.CLIENT_REQUEST_SUBJECT, "proxy", func(m *nats.Msg) {
 		go handleClusterRequest_majority(m, nc)
 	})
 }
@@ -19,53 +20,58 @@ func handleClusterRequest_majority(m *nats.Msg, nc *nats.Conn) {
 	respList := requestCluster(m, nc)
 	res, err := findMajority(respList)
 	if err != nil {
-		log.Print("Error in find majority: %v. \n", err)
+		log.Println("Error in find majority: ", err, ". request ", string(m.Data), "clusterResponses ", respList)
 		return
 	}
 	output, err := json.Marshal(res)
-	checkError(err, "Marshal cluster majority response")
+	shared.CheckError(err, "Marshal cluster majority response")
 	if res.Confidence < 1 {
-		err = nc.Publish(CLUSTER_SYNC_SUBJECT, output)
-		checkError(err, "Publish cluster sync")
+		err = nc.Publish(shared.CLUSTER_SYNC_SUBJECT, output)
+		shared.CheckError(err, "Publish cluster sync")
 	}
 
 	err = nc.Publish(m.Reply, output)
-	checkError(err, "Publish cluster majority response")
+	shared.CheckError(err, "Publish cluster majority response")
 }
 
-func requestCluster(m *nats.Msg, nc *nats.Conn) []DataEntry {
+func requestCluster(m *nats.Msg, nc *nats.Conn) []shared.DataEntry {
 	resSubject := "mizan.cluster.req.res." + uuid.New().String()
-	resChan := make(chan DataEntry, 1000)
+	resChan := make(chan shared.DataEntry, 1000)
 	subscription, err := nc.Subscribe(resSubject, func(msg *nats.Msg) {
-		var s DataEntry
+		var s shared.DataEntry
 		err := json.Unmarshal(msg.Data, &s)
-		checkError(err, "Unmarshal cluster req.res response")
+		shared.CheckError(err, "Unmarshal cluster req.res response")
 		resChan <- s
 	})
-	checkError(err, "Register subscriber for cluster req.res response")
+	shared.CheckError(err, "Register subscriber for cluster req.res response")
 	defer subscription.Unsubscribe()
 
-	err = nc.PublishRequest(CLUSTER_REQUEST_SUBJECT, resSubject, m.Data)
-	checkError(err, "Publish cluster req.res request")
+	err = nc.PublishRequest(shared.CLUSTER_REQUEST_SUBJECT, resSubject, m.Data)
+	shared.CheckError(err, "Publish cluster req.res request")
 
-	respList := []DataEntry{}
+	respList := []shared.DataEntry{}
 	tk := time.NewTicker(250 * time.Millisecond)
+	wCounter := 8
 ll:
 	for {
 		select {
 		case cr := <-resChan:
 			respList = append(respList, cr)
 		case <-tk.C:
-			break ll
+			if len(respList)%2 == 0 && wCounter > 0 {
+				wCounter -= 1
+			} else {
+				break ll
+			}
 		}
 	}
 	return respList
 }
 
-func findMajority(respList []DataEntry) (DataEntry, error) {
+func findMajority(respList []shared.DataEntry) (shared.DataEntry, error) {
 	votMap := make(map[string]int)
 	max := 0
-	var maxItem DataEntry
+	var maxItem shared.DataEntry
 	for _, entry := range respList {
 		votMap[entry.State] += 1
 		if max < votMap[entry.State] {
@@ -75,7 +81,7 @@ func findMajority(respList []DataEntry) (DataEntry, error) {
 	}
 
 	if max <= len(respList)/2 {
-		return DataEntry{}, errors.New("no.majority")
+		return shared.DataEntry{}, errors.New("no.majority")
 	}
 	maxItem.Confidence = float32(max) / float32(len(respList))
 	return maxItem, nil
